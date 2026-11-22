@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DAGMON OS · guest@dagmon</title>
+<meta name="description" content="An interactive terminal: competitive programmer, pentester in training, Arch Linux.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⌨️</text></svg>">
+<style>
+  :root { --bg:#1a1b26; --bar:#16161e; --fg:#c0caf5; --dim:#565f89; --blue:#7aa2f7; --cyan:#7dcfff;
+          --green:#9ece6a; --yellow:#e0af68; --red:#f7768e; --mag:#bb9af7; --orange:#ff9e64; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:#0f0f17; }
+  body { display:flex; align-items:center; justify-content:center; padding:24px;
+         font:15px/1.6 'JetBrains Mono','Fira Code',ui-monospace,Menlo,Consolas,monospace; color:var(--fg); }
+  .win { width:min(1000px,100%); height:min(680px,100%); background:var(--bg); border-radius:12px;
+         box-shadow:0 20px 60px #0008, 0 0 0 1px #292e42; display:flex; flex-direction:column; overflow:hidden; }
+  .bar { background:var(--bar); padding:10px 14px; display:flex; align-items:center; gap:8px; color:var(--dim); font-size:13px; }
+  .bar i { width:12px; height:12px; border-radius:50%; display:inline-block; }
+  .bar .t { flex:1; text-align:center; }
+  .bar .back { color:var(--dim); text-decoration:none; font-size:12px; border:1px solid #292e42; border-radius:6px; padding:2px 8px; }
+  .bar .back:hover { color:var(--fg); border-color:var(--blue); }
+  #term { flex:1; overflow-y:auto; padding:16px 22px; white-space:pre-wrap; word-break:break-word; cursor:text; }
+  .line { min-height:1.6em; }
+  .in { display:flex; }
+  .in input { flex:1; background:none; border:0; outline:0; color:var(--fg); font:inherit; padding:0; caret-color:var(--fg); }
+  .g{color:var(--green)} .b{color:var(--blue)} .c{color:var(--cyan)} .y{color:var(--yellow)} .r{color:var(--red)}
+  .m{color:var(--mag)} .o{color:var(--orange)} .d{color:var(--dim)} .bold{font-weight:bold}
+  a { color:var(--cyan); }
+  .hint { position:fixed; bottom:10px; left:0; right:0; text-align:center; color:var(--dim); font-size:12px; }
+  @media (max-width:600px) { body { padding:0; font-size:13px; } .win { height:100%; border-radius:0; } }
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="bar"><i style="background:#f7768e"></i><i style="background:#e0af68"></i><i style="background:#9ece6a"></i>
+    <span class="t">guest@dagmon: ~</span><a class="back" href="https://github.com/DAGMON-Z" onclick="return goBack()">← back to profile</a></div>
+  <div id="term"></div>
+</div>
+<div class="hint">type <b>help</b> · ↑↓ history · Tab completes · <a href="https://github.com/DAGMON-Z">back to GitHub</a></div>
+<script src="data.js"></script>
+<script>
+"use strict";
+// Live data is rebuilt every few minutes by the profile repo's GitHub Action.
+// data.js is a bundled snapshot used only if the live file can't be reached.
+const LIVE_DATA = "https://raw.githubusercontent.com/DAGMON-Z/DAGMON-Z/main/data/site.json";
+let D = window.DATA || { projects: [], cf: {}, htb: { badges: [] } };
+async function loadLive() {
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 3000);
+    const r = await fetch(LIVE_DATA + "?t=" + Math.floor(Date.now() / 60000), { signal: ctl.signal });
+    clearTimeout(t);
+    if (r.ok) { const j = await r.json(); if (j && j.projects) D = j; }
+  } catch (e) { /* keep the snapshot */ }
+}
+const term = document.getElementById("term");
+const GH = "https://github.com/DAGMON-Z";
+function goBack() { if (document.referrer && history.length > 1) { history.back(); return false; } return true; }
+const REPO = GH + "/DAGMON-Z";
+let cwd = "~", hist = [], hi = 0, busy = false;
+
+/* ---------- output helpers (all text goes through textContent: no HTML injection) ---------- */
+// seg: [text, class] pairs, or a plain string; {a:url} makes a link
+function out(...segs) {
+  const div = document.createElement("div"); div.className = "line";
+  for (const s of segs) {
+    if (typeof s === "string") { div.appendChild(document.createTextNode(s)); continue; }
+    const el = document.createElement(s.a ? "a" : "span");
+    if (s.a) { el.href = s.a; el.target = "_blank"; el.rel = "noopener"; }
+    if (s.c) el.className = s.c;
+    el.textContent = s.t;
+    div.appendChild(el);
+  }
+  term.appendChild(div); return div;
+}
+const T = (t, c) => ({ t, c });
+const L = (t, a) => ({ t, a });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const pad = (s, n) => String(s).padEnd(n);
+
+/* ---------- filesystem ---------- */
+const FS = {
+  "~": ["about.txt", "cp.txt", "pentest.txt", "projects/", "flag.txt", ".secret/"],
+  "~/projects": () => D.projects.map(p => p.name + "/"),
+};
+const FILES = {
+  "about.txt": () => [
+    [T("dagmon", "g bold"), " · competitive programmer · pentester in training"],
+    ["Solving problems in O(n log n), learning to break systems in O(1)."],
+    ["Into networking, Arch Linux (Hyprland + Tokyo Night) and late-night upsolving."],
+    [""], [T("try: ", "d"), T("projects", "c"), T("  cf  ", "d"), T("loot", "c"), T("  ctf  ", "d"), T("neofetch", "c")],
+  ],
+  "cp.txt": () => cfLines(),
+  "pentest.txt": () => lootLines(),
+  "flag.txt": () => [["real flags are hidden in 4 places on my GitHub profile."], [T("type ", "d"), T("ctf", "c"), T(" for the rules.", "d")]],
+};
+
+/* ---------- content builders ---------- */
+function cfLines() {
+  const c = D.cf || {};
+  const rc = { newbie: "d", pupil: "g", specialist: "c", expert: "b", "candidate master": "m", master: "o" }[c.rank] || "y";
+  const L1 = [[T("Codeforces · ", "d"), L(c.handle || "DAGMON", "https://codeforces.com/profile/" + (c.handle || "DAGMON"))]];
+  if (c.rating == null) return L1.concat([["(stats unavailable right now)"]]);
+  const h = c.history || [];
+  const spark = h.length ? h.map(v => "▁▂▃▄▅▆▇█"[Math.round(7 * (v - Math.min(...h)) / Math.max(1, Math.max(...h) - Math.min(...h)))]).join("") : "";
+  const lines = L1.concat([
+    ["rating   ", T(String(c.rating), rc + " bold"), "  ", T(c.rank || "", rc), T(h.length > 1 ? `   ↗ +${h[h.length - 1] - h[0]} in ${c.contests} contests` : "", "g")],
+    ["max      ", String(c.max), T("   history ", "d"), T(spark, "b")],
+    ["solved   ", String(c.solved), T("   language C++23", "d")],
+  ]);
+  if (c.next) {
+    const s = c.next.start - Date.now() / 1000;
+    const when = s > 86400 ? `${Math.floor(s / 86400)}d ${Math.floor(s % 86400 / 3600)}h` : s > 0 ? `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m` : "now";
+    lines.push(["next     ", T(c.next.name, "m"), T(" in ", "d"), T(when, "y")]);
+  }
+  return lines;
+}
+function lootLines() {
+  const h = D.htb || {}, b = h.badges || [];
+  const lines = [[T("msf6", "r"), " > loot"], [""], [T(`Loot (Hack The Box · ${h.user || "DAGMON"})`, "b")], [T("=".repeat(30), "d")]];
+  if (!b.length) lines.push([T("[*] no loot yet. the hunt continues.", "d")]);
+  for (const x of b) lines.push([T("[+] ", "g"), pad(x.name, 18), "  ", pad(x.desc.replace(" module completed", "").replace("Awarded when you achieve your ", "").replace("Awarded after ", "").slice(0, 44), 44), T("  " + x.date, "d")]);
+  const steps = ["guest", "user", "www-data", "admin", "root"], cur = steps.indexOf(h.privilege || "user");
+  const ladder = [T("[*] ", "b"), "Privilege: "];
+  steps.forEach((s, i) => { ladder.push(T(s === "root" ? "root (CPTS)" : s, i < cur ? "g" : i === cur ? "y bold" : "d")); if (i < 4) ladder.push(T(" ─▶ ", "d")); });
+  lines.push([""], [T("[*] ", "b"), "Target: ", T(`${h.path || "Penetration Tester"} path`, "m"), " → CPTS   status: ", T("exploiting…", "y")], ladder);
+  return lines;
+}
+const ARCH = [
+  "                  -`                 ", "                 .o+`                ", "                `ooo/                ",
+  "               `+oooo:               ", "              `+oooooo:              ", "              -+oooooo+:             ",
+  "            `/:-:++oooo+:            ", "           `/++++/+++++++:           ", "          `/++++++++++++++:          ",
+  "         `/+++ooooooooooooo/`        ", "        ./ooosssso++osssssso+`       ", "       .oossssso-````/ossssss+`      ",
+  "      -osssssso.      :ssssssso.     ", "     :osssssss/        osssso+++.    ", "    /ossssssss/        +ssssooo/-    ",
+  "  `/ossssso+/:-        -:/+osssso+-  ", " `+sso+:-`                 `.-/+oso: ", "`++:.                           `-/+/",
+];
+
+/* ---------- commands ---------- */
+const CMDS = {
+  help: () => [
+    [T("DAGMON OS shell · available commands", "b bold")], [""],
+    [T(pad("whoami / about", 21), "c"), "who I am"],
+    [T(pad("neofetch", 21), "c"), "system info, Arch style"],
+    [T(pad("projects", 21), "c"), "my repos (live from GitHub) · open <name>"],
+    [T(pad("cf", 21), "c"), "Codeforces stats (live)"],
+    [T(pad("loot", 21), "c"), "Hack The Box badges (msfconsole style)"],
+    [T(pad("ctf / hint <1-4>", 21), "c"), "the 4-level profile CTF"],
+    [T(pad("ls cd cat pwd", 21), "c"), "explore the filesystem"],
+    [T(pad("nmap ping date echo", 21), "c"), "the usual suspects"],
+    [T(pad("history clear", 21), "c"), ""],
+    [T(pad("exit", 21), "c"), "back to the GitHub profile"],
+    [""], [T("…and a few secrets. curious hackers try everything.", "d")],
+  ],
+  whoami: () => FILES["about.txt"](),
+  about: () => FILES["about.txt"](),
+  neofetch: () => {
+    const info = [
+      [T("guest", "b bold"), T("@", ""), T("dagmon", "b bold")], [T("────────────", "d")],
+      [T("OS", "b"), ": Arch Linux x86_64"], [T("Host", "b"), ": DAGMON-Z (github)"], [T("WM", "b"), ": Hyprland"],
+      [T("Theme", "b"), ": Tokyo Night"], [T("Shell", "b"), ": zsh"], [T("Editor", "b"), ": Neovim"],
+      [T("CP", "b"), `: Codeforces ${D.cf.rating ?? "?"} (${D.cf.rank ?? "?"})`],
+      [T("Pentest", "b"), `: ${D.htb.path || "Penetration Tester"} → CPTS`],
+      [T("Projects", "b"), `: ${D.projects.length}`], [""],
+      [T("███", "r"), T("███", "g"), T("███", "y"), T("███", "b"), T("███", "m"), T("███", "c")],
+    ];
+    return ARCH.map((a, i) => [T(a + "  ", "b")].concat(info[i] || []));
+  },
+  projects: () => {
+    if (!D.projects.length) return [["no public projects yet."]];
+    const lines = [[T("~/projects", "b"), T(`  (${D.projects.length}, live from GitHub)`, "d")], [""]];
+    for (const p of D.projects) {
+      lines.push([T("▸ ", "m"), L(p.name, p.url), p.stars ? T(`  ★ ${p.stars}`, "y") : "", p.langs.length ? T("  " + p.langs.join(" · "), "d") : ""]);
+      if (p.desc) lines.push(["  " + p.desc]);
+      if (p.homepage) lines.push(["  ", T("live: ", "d"), L(p.homepage, p.homepage)]);
+      lines.push([""]);
+    }
+    lines.push([T("tip: ", "d"), T("open <name>", "c"), T(" opens it on GitHub", "d")]);
+    return lines;
+  },
+  open: a => {
+    const p = D.projects.find(x => x.name.toLowerCase() === (a[0] || "").toLowerCase());
+    if (!p) return [[T(`open: no such project: ${a[0] || ""}`, "r")], [T("try: projects", "d")]];
+    window.open(p.url, "_blank", "noopener"); return [["opening ", L(p.url, p.url), " …"]];
+  },
+  cf: () => cfLines(),
+  loot: () => lootLines(),
+  msfconsole: () => lootLines(),
+  ctf: () => [
+    [T("🚩 PROFILE CTF", "r bold"), "  4 flags are hidden across my GitHub profile"], [""],
+    [" Level 1 ", T("[easy]  ", "g"), "  somewhere in the README"],
+    [" Level 2 ", T("[medium]", "y"), "  inside an image's source code"],
+    [" Level 3 ", T("[hard]  ", "o"), "  buried in the repo's git history"],
+    [" Level 4 ", T("[insane]", "r"), "  a packet capture (.pcap) in the repo"], [""],
+    ["submit: ", T("echo -n 'flag{...}YOUR_GITHUB_USERNAME' | sha256sum", "c")],
+    ["then open an issue titled ", T("flag: <level> <hash>", "c"), " on ", L("DAGMON-Z/DAGMON-Z", REPO + "/issues/new?title=flag%3A+1+")],
+    [T("stuck? ", "d"), T("hint 1", "c"), T(" … ", "d"), T("hint 4", "c")],
+  ],
+  hint: a => ({
+    "1": [["base64 is not encryption."]],
+    "2": [["images are just text. GitHub's \"Raw\" button shows you everything, including comments."], [T("caesar would be proud.", "d")]],
+    "3": [["secrets were committed, then deleted. but git never forgets."], [T("git log -p --all", "d")]],
+    "4": [["ignore the HTTP noise. the resolver is chatty: look at every DNS query name."], [T("wireshark: dns.qry.name contains \"dagmon\"", "d")]],
+  }[a[0]] || [[T("usage: hint <1-4>", "y")]]),
+  ls: a => {
+    const arg = a.filter(x => !x.startsWith("-"))[0];
+    const target = arg ? norm(arg) : cwd;
+    let entries = FS[target]; if (typeof entries === "function") entries = entries();
+    if (!entries && target.startsWith("~/projects/") && D.projects.some(p => "~/projects/" + p.name === target)) entries = ["README.md"];
+    if (target === "~/.secret") return [[T("ls: cannot open directory '.secret': Permission denied", "r")]];
+    if (!entries) return [[T(`ls: cannot access '${a[0]}': No such file or directory`, "r")]];
+    const showHidden = a.some(x => /^-\w*a/.test(x));
+    return [entries.filter(e => showHidden || !e.startsWith(".")).map(e => T(e + "  ", e.endsWith("/") ? "b bold" : ""))];
+  },
+  cd: a => {
+    const t = norm(a[0] || "~");
+    if (t === "~/.secret") return [[T("cd: permission denied: .secret", "r")]];
+    if (!FS[t] && !(t.startsWith("~/projects/") && D.projects.some(p => "~/projects/" + p.name === t))) return [[T(`cd: no such file or directory: ${a[0]}`, "r")]];
+    cwd = t; document.querySelector(".bar .t").textContent = "guest@dagmon: " + cwd; return [];
+  },
+  pwd: () => [["/home/guest" + cwd.slice(1)]],
+  cat: a => {
+    if (!a[0]) return [[T("cat: missing file operand", "r")]];
+    const f = a[0].replace(/^~\//, "").replace(/^\.\//, "");
+    if (f === "/etc/shadow") return [[T("nice try. permission denied.", "r")], [T("(+1 to the curious-hackers counter)", "d")]];
+    if (f === "/etc/passwd") return [["root:x:0:0::/root:/bin/bash"], ["dagmon:x:1000:1000::/home/dagmon:/usr/bin/zsh"], ["guest:x:1337:1337::/home/guest:/usr/bin/zsh"]];
+    if (cwd.startsWith("~/projects/") && /^readme(\.md)?$/i.test(f)) {
+      const p = D.projects.find(x => "~/projects/" + x.name === cwd); return [[p.desc || "(no description)"], [L(p.url, p.url)]];
+    }
+    if (cwd === "~" && FILES[f]) return FILES[f]();
+    return [[T(`cat: ${a[0]}: No such file or directory`, "r")]];
+  },
+  nmap: () => [
+    [T("Starting Nmap 7.95", "d")], ["Nmap scan report for ", T("dagmon", "c")],
+    [T("PORT       STATE     SERVICE", "b")],
+    ["22/tcp     ", T("open    ", "g"), "  arch-linux"], ["443/tcp    ", T("open    ", "g"), "  competitive-prog"],
+    ["1337/tcp   ", T("learning", "y"), "  pentesting"], ["8080/tcp   ", T("open    ", "g"), "  networking"],
+    ["31337/tcp  ", T("filtered", "y"), "  ??? (type ctf)"],
+  ],
+  ping: async a => {
+    const host = a[0] || "dagmon";
+    if (host !== "dagmon") return [[T(`ping: ${host}: Name or service not known`, "r")], [T("try: ping dagmon", "d")]];
+    const moods = ["caffeinated", "solving_problems", "upsolving", "ricing_hyprland"];
+    out(`PING dagmon (10.13.37.2) 56(84) bytes of data.`);
+    for (let i = 1; i <= 4; i++) { await sleep(450); out(`64 bytes from dagmon: icmp_seq=${i} ttl=64 time=${(Math.random() * 20 + 3).toFixed(1)} ms mood=`, T(moods[i - 1], "g")); }
+    return [["--- dagmon ping statistics ---"], ["4 packets transmitted, 4 received, 0% packet loss"]];
+  },
+  date: () => [[new Date().toString()]],
+  echo: a => [[a.join(" ")]],
+  history: () => hist.map((h, i) => [T(String(i + 1).padStart(4) + "  ", "d"), h]),
+  clear: () => { term.innerHTML = ""; return null; },
+  sudo: () => [[T("guest is not in the sudoers file. This incident will be reported.", "r")]],
+  su: () => [["Password: "], [T("su: Authentication failure", "r")]],
+  rm: () => [[T("rm: refusing to remove anything on dagmon's machine. nice try.", "r")]],
+  ssh: () => [["root@dagmon's password: ******"], [T("Permission denied (publickey). maybe try the CTF?", "r")]],
+  vim: () => [["you are now stuck in vim forever."], [T("(just kidding. but :q! is the way out.)", "d")]],
+  nvim: () => CMDS.vim(),
+  exit: () => { setTimeout(() => { if (goBack()) location.href = GH; }, 900); return [["logout"], [T("Connection to dagmon closed. taking you back to the profile →", "d")]]; },
+  github: () => { window.open(GH, "_blank", "noopener"); return [["opening ", L(GH, GH)]]; },
+  hack: async () => {
+    const steps = ["[*] enumerating target…", "[*] found open port 31337", "[*] bypassing firewall…", "[*] escalating privileges…"];
+    for (const s of steps) { out(T(s, "g")); await sleep(500); }
+    return [[T("[!] just kidding. real hacking takes study. that's why I'm doing CPTS.", "y")]];
+  },
+};
+const ALIAS = { "?": "help", "ll": "ls", "fastfetch": "neofetch", "repos": "projects", "codeforces": "cf", "htb": "loot", "flag": "ctf", "quit": "exit" };
+
+function norm(p) {
+  if (!p || p === "~" || p === "/home/guest") return "~";
+  if (p === "..") return cwd.split("/").slice(0, -1).join("/") || "~";
+  if (p.startsWith("~/")) return p.replace(/\/$/, "");
+  if (p.startsWith("/")) return p;
+  return (cwd + "/" + p).replace(/\/$/, "");
+}
+
+/* ---------- prompt / input ---------- */
+function promptSegs() { return [T("guest@dagmon", "g"), " ", T(cwd, "b"), " ", T("❯", "m"), " "]; }
+function newPrompt() {
+  const div = document.createElement("div"); div.className = "line in";
+  const p = document.createElement("span");
+  for (const s of promptSegs()) { const e = document.createElement("span"); if (typeof s === "string") e.textContent = s; else { e.className = s.c; e.textContent = s.t; } p.appendChild(e); }
+  const inp = document.createElement("input"); inp.autocomplete = "off"; inp.spellcheck = false; inp.setAttribute("autocapitalize", "off"); inp.setAttribute("aria-label", "terminal input");
+  div.append(p, inp); term.appendChild(div); inp.focus(); term.scrollTop = term.scrollHeight;
+  inp.addEventListener("keydown", e => onKey(e, inp, div));
+}
+async function onKey(e, inp, div) {
+  if (busy) { e.preventDefault(); return; }
+  if (e.key === "Enter") {
+    const raw = inp.value; const echo = document.createElement("span"); echo.textContent = raw;
+    inp.replaceWith(echo); div.classList.remove("in");
+    if (raw.trim()) { hist.push(raw); }
+    hi = hist.length; await run(raw.trim()); newPrompt();
+  } else if (e.key === "ArrowUp") { e.preventDefault(); if (hi > 0) inp.value = hist[--hi]; }
+  else if (e.key === "ArrowDown") { e.preventDefault(); hi = Math.min(hist.length, hi + 1); inp.value = hist[hi] || ""; }
+  else if (e.key === "Tab") {
+    e.preventDefault();
+    const parts = inp.value.split(" ");
+    const pool = parts.length === 1 ? Object.keys(CMDS) : (parts[0] === "open" ? D.projects.map(p => p.name) : [].concat(FS[cwd] && typeof FS[cwd] !== "function" ? FS[cwd] : (typeof FS[cwd] === "function" ? FS[cwd]() : []), Object.keys(FILES)));
+    const m = [...new Set(pool)].filter(x => x.startsWith(parts[parts.length - 1]));
+    if (m.length === 1) { parts[parts.length - 1] = m[0]; inp.value = parts.join(" "); }
+    else if (m.length > 1) { out(m.join("  ")); const v = inp.value; div.remove(); newPrompt(); term.lastChild.querySelector("input").value = v; }
+  } else if (e.key === "l" && e.ctrlKey) { e.preventDefault(); term.innerHTML = ""; newPrompt(); }
+}
+async function run(raw) {
+  if (!raw) return;
+  let [cmd, ...args] = raw.split(/\s+/);
+  cmd = ALIAS[cmd.toLowerCase()] || cmd.toLowerCase();
+  const fn = CMDS[cmd];
+  if (!fn) { out(T(`zsh: command not found: ${cmd}`, "r")); return; }
+  busy = true;
+  try {
+    const res = await fn(args);
+    if (res) for (const l of res) out(...l);
+  } finally { busy = false; }
+  term.scrollTop = term.scrollHeight;
+}
+term.addEventListener("click", () => { if (!window.getSelection().toString()) { const i = term.querySelector(".in input"); if (i) i.focus(); } });
+
+/* ---------- boot ---------- */
+(async () => {
+  busy = true;
+  const live = loadLive();
+  const boot = [
+    [T(":: ", "d"), "running early hook [", T("udev", "b"), "]"],
+    ["[  ", T("OK", "g"), "  ] Mounted ", T("/home/guest", "b")],
+    ["[  ", T("OK", "g"), "  ] Started ", T("Competitive Programming Daemon", "m")],
+    ["[  ", T("OK", "g"), "  ] Started ", T("Packet Sniffer Service", "m")],
+    ["[", T(" *** ", "r"), " ] A start job is running for ", T("Penetration Tester", "r"), T(" (CPTS… / no limit)", "d")],
+    ["[  ", T("OK", "g"), "  ] Started ", T("Hyprland", "b"), " · theme ", T("Tokyo Night", "m")],
+  ];
+  for (const l of boot) { out(...l); await sleep(180); }
+  await live; await sleep(300); term.innerHTML = "";
+  out("Welcome to ", T("DAGMON OS", "b bold"), " · logged in as ", T("guest", "g"));
+  out(T("type ", "d"), T("help", "c"), T(" to see what you can do. try ", "d"), T("neofetch", "c"), T(", ", "d"), T("projects", "c"), T(" or ", "d"), T("ctf", "c"), T(".", "d"));
+  out(T("type ", "d"), T("exit", "c"), T(" (or click ← back to profile) to return to the GitHub profile.", "d"));
+  out("");
+  busy = false; newPrompt();
+})();
+</script>
+</body>
+</html>
