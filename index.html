@@ -44,7 +44,7 @@
 // Live data is rebuilt every few minutes by the profile repo's GitHub Action.
 // data.js is a bundled snapshot used only if the live file can't be reached.
 const LIVE_DATA = "https://raw.githubusercontent.com/DAGMON-Z/DAGMON-Z/main/data/site.json";
-let D = window.DATA || { projects: [], cf: {}, htb: { badges: [] } };
+let D = window.DATA || { projects: [], cf: {}, thm: {} };
 async function loadLive() {
   try {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 3000);
@@ -88,7 +88,7 @@ const FILES = {
     [T("dagmon", "g bold"), " · competitive programmer · pentester in training"],
     ["Solving problems in O(n log n), learning to break systems in O(1)."],
     ["Into networking, Arch Linux (Hyprland + Tokyo Night) and late-night upsolving."],
-    [""], [T("try: ", "d"), T("projects", "c"), T("  cf  ", "d"), T("loot", "c"), T("  ctf  ", "d"), T("neofetch", "c")],
+    [""], [T("try: ", "d"), T("projects", "c"), T("  cf  ", "d"), T("thm", "c"), T("  ctf  ", "d"), T("neofetch", "c")],
   ],
   "cp.txt": () => cfLines(),
   "pentest.txt": () => lootLines(),
@@ -116,15 +116,18 @@ function cfLines() {
   return lines;
 }
 function lootLines() {
-  const h = D.htb || {}, b = h.badges || [];
-  const lines = [[T("msf6", "r"), " > loot"], [""], [T(`Loot (Hack The Box · ${h.user || "DAGMON"})`, "b")], [T("=".repeat(30), "d")]];
-  if (!b.length) lines.push([T("[*] no loot yet. the hunt continues.", "d")]);
-  for (const x of b) lines.push([T("[+] ", "g"), pad(x.name, 18), "  ", pad(x.desc.replace(" module completed", "").replace("Awarded when you achieve your ", "").replace("Awarded after ", "").slice(0, 44), 44), T("  " + x.date, "d")]);
-  const steps = ["guest", "user", "www-data", "admin", "root"], cur = steps.indexOf(h.privilege || "user");
+  const h = D.thm || {}, user = h.user || "DAGMON", url = h.url || `https://tryhackme.com/p/${user}`;
+  const steps = ["guest", "user", "www-data", "admin", "root"], cur = Math.max(0, steps.indexOf(h.privilege || "guest"));
   const ladder = [T("[*] ", "b"), "Privilege: "];
-  steps.forEach((s, i) => { ladder.push(T(s === "root" ? "root (CPTS)" : s, i < cur ? "g" : i === cur ? "y bold" : "d")); if (i < 4) ladder.push(T(" ─▶ ", "d")); });
-  lines.push([""], [T("[*] ", "b"), "Target: ", T(`${h.path || "Penetration Tester"} path`, "m"), " → CPTS   status: ", T("exploiting…", "y")], ladder);
-  return lines;
+  steps.forEach((s, i) => { ladder.push(T(s === "root" ? "root (Red Teamer)" : s, i < cur ? "g" : i === cur ? "y bold" : "d")); if (i < 4) ladder.push(T(" ─▶ ", "d")); });
+  return [
+    [T("msf6", "r"), " > sessions -i 1"], [""],
+    [T(`TryHackMe · ${user}`, "b")], [T("=".repeat(30), "d")],
+    [T("[*] ", "b"), "Target: ", T(`${h.path || "Red Teamer"} path`, "m"), " on TryHackMe   status: ", T("exploiting…", "y")],
+    ladder,
+    [T("    current: ", "d"), T(h.privilege || "guest", "y"), T(" · next stop: root", "d")], [""],
+    [T("[*] ", "b"), "live rank, rooms & badges: ", L(url, url)],
+  ];
 }
 const ARCH = [
   "                  -`                 ", "                 .o+`                ", "                `ooo/                ",
@@ -143,7 +146,7 @@ const CMDS = {
     [T(pad("neofetch", 21), "c"), "system info, Arch style"],
     [T(pad("projects", 21), "c"), "my repos (live from GitHub) · open <name>"],
     [T(pad("cf", 21), "c"), "Codeforces stats (live)"],
-    [T(pad("loot", 21), "c"), "Hack The Box badges (msfconsole style)"],
+    [T(pad("thm", 21), "c"), "TryHackMe progress · Red Teamer path"],
     [T(pad("ctf / hint <1-4>", 21), "c"), "the 4-level profile CTF"],
     [T(pad("ls cd cat pwd", 21), "c"), "explore the filesystem"],
     [T(pad("nmap ping date echo", 21), "c"), "the usual suspects"],
@@ -159,7 +162,7 @@ const CMDS = {
       [T("OS", "b"), ": Arch Linux x86_64"], [T("Host", "b"), ": DAGMON-Z (github)"], [T("WM", "b"), ": Hyprland"],
       [T("Theme", "b"), ": Tokyo Night"], [T("Shell", "b"), ": zsh"], [T("Editor", "b"), ": Neovim"],
       [T("CP", "b"), `: Codeforces ${D.cf.rating ?? "?"} (${D.cf.rank ?? "?"})`],
-      [T("Pentest", "b"), `: ${D.htb.path || "Penetration Tester"} → CPTS`],
+      [T("Pentest", "b"), `: TryHackMe · ${(D.thm || {}).path || "Red Teamer"} path`],
       [T("Projects", "b"), `: ${D.projects.length}`], [""],
       [T("███", "r"), T("███", "g"), T("███", "y"), T("███", "b"), T("███", "m"), T("███", "c")],
     ];
@@ -183,7 +186,7 @@ const CMDS = {
     window.open(p.url, "_blank", "noopener"); return [["opening ", L(p.url, p.url), " …"]];
   },
   cf: () => cfLines(),
-  loot: () => lootLines(),
+  thm: () => lootLines(),
   msfconsole: () => lootLines(),
   ctf: () => [
     [T("🚩 PROFILE CTF", "r bold"), "  4 flags are hidden across my GitHub profile"], [""],
@@ -259,10 +262,10 @@ const CMDS = {
   hack: async () => {
     const steps = ["[*] enumerating target…", "[*] found open port 31337", "[*] bypassing firewall…", "[*] escalating privileges…"];
     for (const s of steps) { out(T(s, "g")); await sleep(500); }
-    return [[T("[!] just kidding. real hacking takes study. that's why I'm doing CPTS.", "y")]];
+    return [[T("[!] just kidding. real hacking takes study. that's why I'm on the Red Teamer path.", "y")]];
   },
 };
-const ALIAS = { "?": "help", "ll": "ls", "fastfetch": "neofetch", "repos": "projects", "codeforces": "cf", "htb": "loot", "flag": "ctf", "quit": "exit" };
+const ALIAS = { "?": "help", "ll": "ls", "fastfetch": "neofetch", "repos": "projects", "codeforces": "cf", "htb": "thm", "loot": "thm", "tryhackme": "thm", "flag": "ctf", "quit": "exit" };
 
 function norm(p) {
   if (!p || p === "~" || p === "/home/guest") return "~";
@@ -324,7 +327,7 @@ term.addEventListener("click", () => { if (!window.getSelection().toString()) { 
     ["[  ", T("OK", "g"), "  ] Mounted ", T("/home/guest", "b")],
     ["[  ", T("OK", "g"), "  ] Started ", T("Competitive Programming Daemon", "m")],
     ["[  ", T("OK", "g"), "  ] Started ", T("Packet Sniffer Service", "m")],
-    ["[", T(" *** ", "r"), " ] A start job is running for ", T("Penetration Tester", "r"), T(" (CPTS… / no limit)", "d")],
+    ["[", T(" *** ", "r"), " ] A start job is running for ", T("Red Teamer path", "r"), T(" (rooms… / no limit)", "d")],
     ["[  ", T("OK", "g"), "  ] Started ", T("Hyprland", "b"), " · theme ", T("Tokyo Night", "m")],
   ];
   for (const l of boot) { out(...l); await sleep(180); }
