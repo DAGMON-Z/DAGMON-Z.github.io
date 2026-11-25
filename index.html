@@ -116,11 +116,6 @@ function cfLines() {
     ["max      ", String(c.max), T("   history ", "d"), T(spark, "b")],
     ["solved   ", String(c.solved), T("   language C++23", "d")],
   ]);
-  if (c.next) {
-    const s = c.next.start - Date.now() / 1000;
-    const when = s > 86400 ? `${Math.floor(s / 86400)}d ${Math.floor(s % 86400 / 3600)}h` : s > 0 ? `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m` : "now";
-    lines.push(["next     ", T(c.next.name, "m"), T(" in ", "d"), T(when, "y")]);
-  }
   return lines;
 }
 function lootLines() {
